@@ -1,0 +1,88 @@
+services:
+  # Mongo Database
+  mongo:
+    container_name: payments-mongo-db
+    image: mongo:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./infrastructure/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+
+  # Postgres Database
+  postgres:
+    container_name: processor-postgres-db
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: fintech
+      POSTGRES_PASSWORD: devcon
+      POSTGRES_DB: payments
+    volumes:
+      - ./infrastructure/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+
+  # Redis Cluster for Federation
+  redis:
+    container_name: gateway-redis
+    image: redis:latest
+    ports:
+      - "6379:6379"
+
+  # .NET 9 Payments API Service
+  payments-api:
+    container_name: dotnet-payments-api
+    build:
+      context: .
+      dockerfile: payments/Payments.API/Dockerfile
+    environment:
+      - ASPNETCORE_URLS=http://+:80
+      - ASPNETCORE_ENVIRONMENT=Docker
+    ports:
+      - "2022:80"
+    depends_on:
+      - mongo
+      - redis
+
+  # Payments UI (React/Vite)
+  payments-ui:
+    container_name: react-payments-ui
+    build:
+      context: payments/payments-ui
+      dockerfile: Dockerfile
+    ports:
+      - "2023:2023"
+    depends_on:
+      - payments-api
+
+  # Python API Service
+  processor:
+    container_name: python-processor-api
+    build: ./processor
+    environment:
+      - REDIS_HOST=gateway-redis
+      - DATABASE_URI=postgresql://fintech:devcon@postgres:5432/payments
+    ports:
+      - "2024:2024"
+    depends_on:
+      - postgres
+      - redis
+
+  # Node.js/Typescript Gateway
+  gateway:
+    container_name: graphql-gateway-ui
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    volumes:
+      - ./gateway:/app
+      - /app/node_modules
+    ports:
+      - "2025:2025"
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - payments-api
+      - processor
+      - redis
+      - postgres
+      - mongo

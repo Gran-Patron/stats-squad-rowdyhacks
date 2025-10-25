@@ -1,0 +1,8 @@
+ariadne
+flask
+flask-cors
+flask-sqlalchemy
+psycopg2-binary
+sqlalchemy
+python-dotenv
+redis>=5.0.0
