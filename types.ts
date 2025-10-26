@@ -1,10 +1,32 @@
 
+export interface CleanSpotifyTrack {
+  track_id: string;
+  track_name: string;
+  track_artist: string;
+  track_popularity: number | null;
+  track_album_id: string;
+  track_album_name: string;
+  track_album_release_date: string;
+  danceability: number | null;
+  energy: number | null;
+  valence: number | null;
+  tempo: number | null;
+  duration_ms: number | null;
+  playlist_genres_all: string;
+  playlist_subgenres_all: string;
+  playlist_count: number | null;
+}
+
+export type SongOrigin = "clean_spotify" | "itunes" | "mock";
+
 export interface Song {
-  id: number;
+  id: string;
   title: string;
   artist: string;
   albumArt: string;
-  previewUrl: string;
+  previewUrl: string | null;
+  origin: SongOrigin;
+  datasetTrack?: CleanSpotifyTrack;
 }
 
 export interface SpotifyTrack {

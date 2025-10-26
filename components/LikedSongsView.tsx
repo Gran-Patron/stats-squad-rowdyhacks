@@ -10,7 +10,7 @@ interface LikedSongsViewProps {
   analysisResult: string | null;
   error: string | null;
   clearError: () => void;
-  onDelete: (songId: number) => void;
+  onDelete: (songId: string) => void;
 }
 
 const VibeAnalysis: React.FC<{ analysisResult: string | null; isAnalyzing: boolean; onAnalyze: () => void; error: string | null; clearError: () => void; hasEnoughSongs: boolean; }> = 

@@ -82,7 +82,7 @@ export const FriendSuggestView: React.FC<FriendSuggestViewProps> = ({ onSuggesti
         setSearchResults(prev => prev.filter(s => s.id !== song.id));
     };
 
-    const removeSuggestion = (songId: number) => {
+const removeSuggestion = (songId: string) => {
         setSuggestedSongs(prev => prev.filter(s => s.id !== songId));
     };
 

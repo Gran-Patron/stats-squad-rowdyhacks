@@ -1,9 +1,10 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { Music, Heart, X, ListMusic, Loader2, Compass, Users, ThumbsDown } from 'lucide-react';
 import { useAction, useConvexAuth, useQuery } from 'convex/react';
 import { useAuthActions } from '@convex-dev/auth/react';
 import { api } from './convex/_generated/api';
-import { Song, SpotifyConnectionStatus, SpotifyProfile, SpotifyTrack, SpotifyArtist } from './types';
+import { CleanSpotifyTrack, Song, SpotifyConnectionStatus, SpotifyProfile, SpotifyTrack, SpotifyArtist } from './types';
+import Papa from 'papaparse';
 import { MOCK_SONGS } from './constants';
 import { SongCard } from './components/SongCard';
 import { LikedSongsView } from './components/LikedSongsView';
@@ -310,8 +311,11 @@ const App: React.FC = () => {
                return;
           }
 
-          setSongs(prevSongs => [...prevSongs, ...newSongs]);
-          setCurrentIndex(prevIndex => prevIndex + newSongs.length);
+          setSongs(prevSongs => {
+            const newDeck = [...prevSongs, ...newSongs];
+            setCurrentIndex(newDeck.length - 1);
+            return newDeck;
+          });
           setView('swipe');
 
       } catch (err) {
