@@ -1,0 +1,275 @@
+# --- Step 1: Import the dataset directly from the GitHub TidyTuesday repository ---
+url = "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-01-21/spotify_songs.csv"
+
+# Read the dataset
+spotify_df = pd.read_csv(url)
+
+# Display Variable Information
+spotify_df.info()
+
+## --- Inspect and Standardize Variable Types ---
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
+# 1️ Identify integer-type columns
+int_columns = spotify_df.select_dtypes(include="int64").columns
+print("Integer columns:", list(int_columns))
+
+# Display summary statistics for integer columns
+display(spotify_df[int_columns].describe().T[["min", "max"]])
+
+# 2️ Identify float-type columns
+float_columns = spotify_df.select_dtypes(include="float64").columns
+print("\nFloat columns:", list(float_columns))
+
+# Display summary statistics for float columns
+float_summary = spotify_df[float_columns].describe().T[["min", "max", "mean", "std"]]
+display(float_summary.applymap("{:.15f}".format))
+
+# --- Convert integer columns to optimal types ---
+
+spotify_df = spotify_df.astype({
+    "track_popularity": "int8",
+    "key": "int8",
+    "duration_ms": "int32"
+})
+
+# Convert binary field 'mode' to boolean
+spotify_df["mode"] = spotify_df["mode"].astype(bool)
+
+# Convert float64 to float32
+spotify_df[float_columns] = spotify_df[float_columns].astype('float32')
+
+# Check unique date formats in the 'track_album_release_date' column
+
+# Count character lengths to detect patterns
+spotify_df['date_length'] = spotify_df['track_album_release_date'].astype(str).apply(len)
+print(spotify_df['date_length'].value_counts().sort_index())
+
+# Preview examples by length
+for length in sorted(spotify_df['date_length'].unique()):
+    subset = spotify_df[spotify_df['date_length'] == length]['track_album_release_date'].head()
+    print(f"\nExamples with {length} characters:")
+    print(subset.to_list())
+
+    # --- Ensure consistent date formatting ---
+spotify_df['track_album_release_date'] = spotify_df['track_album_release_date'].astype(str)
+
+# Compute string length dynamically
+date_lengths = spotify_df['track_album_release_date'].str.len()
+
+# Pad missing month/day parts safely
+spotify_df.loc[date_lengths == 4, 'track_album_release_date'] += '-01-01'   # Year only → add Jan 1
+spotify_df.loc[date_lengths == 7, 'track_album_release_date'] += '-01'      # Year-month only → add day 1
+
+# --- Convert to datetime (retain datetime64[ns] for time-series analysis) ---
+spotify_df['track_album_release_date'] = pd.to_datetime(
+    spotify_df['track_album_release_date'],
+    errors='coerce'
+)
+
+# --- Verify results ---
+print("Dtype after cleaning:", spotify_df['track_album_release_date'].dtype)
+print("Date range:", spotify_df['track_album_release_date'].min(), "→", spotify_df['track_album_release_date'].max())
+print("Missing dates:", spotify_df['track_album_release_date'].isna().sum())
+
+# --- Clean up helper column ---
+if 'date_length' in spotify_df.columns:
+    spotify_df.drop(columns='date_length', inplace=True)
+    print("Dropped temporary column: date_length")
+
+# Verify data types after conversion
+spotify_df.info()
+
+# Check for missing values
+missing_summary = spotify_df.isna().sum()
+missing_percent = (spotify_df.isnull().sum() / len(spotify_df)) * 100
+
+# Combine into a summary DataFrame
+missing_report = pd.DataFrame({
+    'Missing Count': missing_summary,
+    'Missing %': missing_percent
+}).round(2)
+
+# Display only columns that actually have missing values
+print("Missing values per column:\n")
+display(missing_report[missing_report['Missing Count'] > 0])
+
+# Check the observations where 'track_name' is missing
+missing_track_name = spotify_df[spotify_df['track_name'].isna()]
+
+# Display rows where 'track_artist' is missing
+print("\nRows with missing 'track_artist':")
+display(spotify_df[spotify_df['track_artist'].isna()].head())
+
+# --- Check for duplicates and unique counts ---
+
+# Check for duplicates across ALL columns
+full_duplicates = spotify_df.duplicated().sum()
+
+# Compare total vs. unique track IDs
+total_tracks = len(spotify_df)
+unique_tracks = spotify_df['track_id'].nunique()
+dup_tracks = total_tracks - unique_tracks  # difference = number of duplicate IDs
+
+print(f"Total tracks: {total_tracks}")
+print(f"Unique track_id values: {unique_tracks}")
+print(f"Difference (duplicate track_id entries): {dup_tracks}")
+
+# Check for duplicates by track_id only
+track_id_duplicates = spotify_df['track_id'].duplicated().sum()
+
+print(f"\nNumber of full duplicate rows (all columns identical): {full_duplicates}")
+print(f"Number of duplicate track_id entries (from .duplicated()): {track_id_duplicates}")
+
+# Count unique values per variable
+print(f"\nveryfying Dataframe shape: {spotify_df.shape}")
+print("\nCount of unique variable values:")
+print(spotify_df.nunique())
+
+# --- Identify columns causing duplicate track_id entries ---
+dupes = spotify_df[spotify_df.duplicated(subset=['track_id'], keep=False)]
+
+varying_cols = [
+    col for col in spotify_df.columns
+    if dupes.groupby('track_id')[col].nunique().gt(1).any()
+]
+
+print("Columns that vary across duplicate track_id entries:")
+print(varying_cols)
+
+# --- Create Playlist Subset and Clean Main Dataset ---
+
+# Create a separate subset containing playlist-related variation
+playlist_subset = spotify_df[['track_id'] + varying_cols]
+
+print("Created 'playlist_subset' containing the following columns:")
+print(['track_id'] + varying_cols)
+print(f"Shape: {playlist_subset.shape}")
+
+# --- Remove playlist-related columns from main dataset ---
+spotify_df.drop(columns=varying_cols, inplace=True)
+print(f"\nDropped {len(varying_cols)} playlist-related columns from main dataset.")
+print(f"Updated shape: {spotify_df.shape}")
+
+# --- Remove duplicate track_id rows (keeping the first occurrence) ---
+# spotify_df.drop_duplicates(subset=['track_id'], keep='first', inplace=True)
+# print(f" Duplicates removed. Updated shape: {spotify_df.shape}")
+# print(f"Remaining duplicate track_id entries: {spotify_df['track_id'].duplicated().sum()}")
+
+# Collapse genres into a single column per track_id
+genres_per_track = (
+    playlist_subset.groupby("track_id")["playlist_genre"]
+    .unique()  # get unique genres per track
+    .apply("; ".join)  # join them into one string separated by semicolons
+    .reset_index(name="playlist_genres_all")
+)
+
+# Merge back if you also want total count of playlists
+track_playlist_counts = (
+    playlist_subset.groupby("track_id")["playlist_id"]
+    .nunique()  # count unique playlist IDs per track
+    .reset_index(name="playlist_count")
+)
+
+# Combine into one dataframe
+track_summary = (
+    genres_per_track
+    .merge(track_playlist_counts, on="track_id", how="left")
+    .sort_values(by="playlist_count", ascending=False)  # sort by count descending
+    .reset_index(drop=True)
+)
+
+display(track_summary.head(10))
+
+import os
+import pandas as pd
+
+# ======================================================
+#   CLEAN SPOTIFY MERGED DATASET AND EXPORT
+# ======================================================
+
+# 1️⃣ Remove any duplicate rows (based on all columns)
+clean_spotify = spotify_merged.drop_duplicates().copy()
+
+# 2️⃣ If any duplicate column names exist (e.g., from a previous merge), remove them safely
+clean_spotify = clean_spotify.loc[:, ~clean_spotify.columns.duplicated()]
+
+# 3️⃣ Define export path
+save_dir = os.path.join(os.getcwd(), "spotify", "data", "save_point")
+os.makedirs(save_dir, exist_ok=True)
+
+csv_path = os.path.join(save_dir, "clean_spotify.csv")
+
+# 4️⃣ Export to CSV (UTF-8 encoding for safety)
+clean_spotify.to_csv(csv_path, index=False, encoding="utf-8")
+
+# 5️⃣ Confirm results
+print(f"✅ Clean dataset created and saved to:\n{csv_path}")
+print(f"Rows: {len(clean_spotify):,}, Columns: {clean_spotify.shape[1]}")
+
+# ======================================================
+#   COLLAPSE GENRES AND SUBGENRES PER TRACK (SEPARATE COLUMNS)
+# ======================================================
+# ======================================================
+#   COLLAPSE GENRES AND SUBGENRES PER TRACK (CLEAN DATA)
+# ======================================================
+
+# Collapse unique genres per track
+genres_per_track = (
+    playlist_subset.groupby("track_id")["playlist_genre"]
+    .unique()
+    .apply("; ".join)
+    .reset_index(name="playlist_genres_all")
+)
+
+# Collapse unique subgenres per track
+subgenres_per_track = (
+    playlist_subset.groupby("track_id")["playlist_subgenre"]
+    .unique()
+    .apply("; ".join)
+    .reset_index(name="playlist_subgenres_all")
+)
+
+# Count number of unique playlists per track
+track_playlist_counts = (
+    playlist_subset.groupby("track_id")["playlist_id"]
+    .nunique()
+    .reset_index(name="playlist_count")
+)
+
+# Merge all results together
+track_summary = (
+    genres_per_track
+    .merge(subgenres_per_track, on="track_id", how="left")
+    .merge(track_playlist_counts, on="track_id", how="left")
+    .sort_values(by="playlist_count", ascending=False)
+    .reset_index(drop=True)
+)
+
+display(track_summary.head(10))
+
+# ======================================================
+#   FILTER TOP 1000 TRACKS BY POPULARITY AND EXPORT
+# ======================================================
+
+# 1️⃣ Sort by 'track_popularity' descending and keep top 1000
+top_1000_spotify = (
+    clean_spotify
+    .sort_values(by="track_popularity", ascending=False)
+    .head(1000)
+    .reset_index(drop=True)
+)
+
+# 2️⃣ Define export directory and file path
+save_dir = os.path.join(os.getcwd(), "spotify", "data", "save_point")
+os.makedirs(save_dir, exist_ok=True)
+
+json_path = os.path.join(save_dir, "top_1000_spotify.json")
+
+# 3️⃣ Export to JSON (records format = list of objects)
+top_1000_spotify.to_json(json_path, orient="records", indent=4, force_ascii=False)
+
+# 4️⃣ Confirmation
+print(f"✅ Top 1000 tracks exported to JSON:\n{json_path}")
+print(f"Rows: {len(top_1000_spotify):,}, Columns: {top_1000_spotify.shape[1]}")
